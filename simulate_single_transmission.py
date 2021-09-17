@@ -1,13 +1,17 @@
 import numpy as np
+from scipy import linalg
 
 from hard_detection import hard_detection
 from subtask12 import subtask12
+import time as tm
 
 
 def simulate_single_transmission(
     t_cfg, time, snr, 
     link_channel, tx_iq
 ):
+    tm_st = tm.time_ns()
+
     ue_ant_cnt, bs_ant_cnt, file_sc_count, T = link_channel.shape
 
     # !!! STUDENT TASK !!!   SUBTASK 1.1
@@ -46,12 +50,16 @@ def simulate_single_transmission(
     # as we sent single stream, then each receive antenna has to have similar result, and
     # to reduce noise impact, we just sum up all antennas assuming
     # COHERENT SUMMATION for SIGNAL, and AVERAGING for noise
+    tm_mid_st = tm.time_ns()
+
     rx_iq = np.zeros(t_cfg.sc_cnt, dtype=complex)
     lamb = np.zeros((ue_ant_cnt, t_cfg.sc_cnt))
     for sc_ind in range(0, t_cfg.sc_cnt):
         rx_iq[sc_ind] = np.sum(np.linalg.pinv(H[:, :, sc_ind]).dot(y[:, sc_ind]))
         U, tmp, V = np.linalg.svd(H[:, :, sc_ind])
         lamb[:, sc_ind] = tmp
+
+    tm_mid_end = tm.time_ns()
 
     lmbd = np.sort(np.mean(lamb, 1))[::-1] / max(np.mean(lamb, 1))
     # ###########################################################################
@@ -69,6 +77,8 @@ def simulate_single_transmission(
     rx_iq = hard_detection(rx_iq, "BPSK")
 
     ber = np.sum(np.abs(tx_iq - rx_iq) / 2) / t_cfg.sc_cnt
-    return ber, lmbd
+
+    tm_end = tm.time_ns()
+    return ber, lmbd, (tm_mid_end-tm_mid_st)/(tm_end - tm_st)
 
 

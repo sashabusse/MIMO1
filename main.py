@@ -1,7 +1,9 @@
 import numpy as np
 from scipy import io
 import matplotlib.pyplot as plt
-from concurrent import futures
+import multiprocessing
+import concurrent.futures
+import time
 
 from simulate_single_transmission import simulate_single_transmission
 from TaskCfg import TaskCfg
@@ -26,7 +28,7 @@ print('Channel path_loss:\t{}  ({} dB)'.format(path_loss, 20 * np.log10(path_los
 
 # config parameters
 t_cfg = TaskCfg(
-    packet_cnt=5,  # Amount of packets for transmission (default: 32)
+    packet_cnt=32,  # Amount of packets for transmission (default: 32)
     sc_cnt=256,  # L Number of constellation points and allocated sub-carriers
     # for OFDM L < K - 12*StudentID (default: 256 for BPSK)
     student_id=1
@@ -39,26 +41,40 @@ lmbd = np.zeros((t_cfg.packet_cnt, 4))
 # ================================================================
 # task 1 / item 2 : create spatial matching filter and output BER(SNR)
 # ================================================================
+total_st = time.time_ns()
 
-for packet_ind in range(0, t_cfg.packet_cnt):
-    print('Packet {}'.format(packet_ind))
+res_tm = 0.
+with concurrent.futures.ThreadPoolExecutor(1) as executor:
+    for packet_ind in range(t_cfg.packet_cnt):
+        print('Packet {}'.format(packet_ind))
 
-    # [1] generation information bit sequence length L and map it in BPSK (single OFDM symbol) ###
-    tx_iq = 2 * np.random.randint(0, 2, t_cfg.sc_cnt) - 1
+        # [1] generation information bit sequence length L and map it in BPSK (single OFDM symbol) ###
+        tx_iq = 2 * np.random.randint(0, 2, t_cfg.sc_cnt) - 1
 
-    # test reception for each SNR case
-    for snr_ind in range(len(snr_list)):
+        thread_pool = concurrent.futures.ThreadPoolExecutor(len(snr_list))
+        # test reception for each SNR case
+        futures = []
+        for snr_ind in range(len(snr_list)):
+            futures.append(executor.submit(
+                simulate_single_transmission,
+                t_cfg, t_cfg.time_offset + packet_ind, snr_list[snr_ind],
+                link_channel, tx_iq
+            ))
 
-        ber[snr_ind, packet_ind], lmbd[packet_ind] = simulate_single_transmission(
-            t_cfg, t_cfg.time_offset + packet_ind, snr_list[snr_ind],
-            link_channel, tx_iq
-        )
+        for snr_ind in range(len(snr_list)):
+            while not futures[snr_ind].done():
+                time.sleep(5.e-2)
 
-        print(
-            'BER = {:.2f} \t lambda_1 = {:.2f} \t lambda_2 = {:.2f}'.format(
-                ber[snr_ind, packet_ind], lmbd[packet_ind][1], lmbd[packet_ind][2])
-        )
+            ber[snr_ind, packet_ind], lmbd[packet_ind], tm_cur = futures[snr_ind].result()
+            print(
+                'BER = {:.2f} \t lambda_1 = {:.2f} \t lambda_2 = {:.2f}'.format(
+                    ber[snr_ind, packet_ind], lmbd[packet_ind][1], lmbd[packet_ind][2])
+            )
+            res_tm += tm_cur
 
+total_end = time.time_ns()
+print(total_end-total_st)
+print(res_tm/(t_cfg.packet_cnt * len(snr_list)))
 fig_ber, ax_ber = plt.subplots(1, 1)
 ax_ber.semilogy(snr_list, np.mean(ber, 1))
 
