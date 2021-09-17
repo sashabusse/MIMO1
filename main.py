@@ -7,29 +7,39 @@ from subtask12 import subtask12
 from subtask13 import subtask13
 
 
-packet_cnt = 15                          # Amount of packets for transmission (default: 32)
+class TaskCfg:
+    def __init__(self, packet_cnt, sc_cnt, student_id):
+        self.packet_cnt = packet_cnt
+        self.sc_cnt = sc_cnt
+
+        # Depending of Student ID in this task, each one has personal sub-carrier offset,
+        # [ Student# * 12 + 1  ... Student# * 12 + 1 + L ]
+        # REMEMBER(!)     L < K - 12* StudentID
+        # ------------------------------------------------------------------------------
+        self.student_id = student_id
+        self.sc0 = self.student_id*12+1
+        self.sc1 = self.student_id*12+1+self.sc_cnt
+        self.time_offset = 2*self.student_id
+
+
+t_cfg = TaskCfg(
+    packet_cnt=5,       # Amount of packets for transmission (default: 32)
+    sc_cnt=256,         # L Number of constellation points and allocated sub-carriers
+                        # for OFDM L < K - 12*StudentID (default: 256 for BPSK)
+    student_id=1
+)
+
 SNR = np.arange(-10, 21, 2)     # dB	range of SNR (default -20...8 for BPSK)
-BER = np.zeros((len(SNR), packet_cnt))
-sc_cnt = 256           # L Number of constellation points and allocated subcarriers
-# for OFDM L < K - 12*StudentID (default: 256 for BPSK)
+BER = np.zeros((len(SNR), t_cfg.packet_cnt))
 
-
-# Dependeng of Student ID in this task, each one has personal subcarrier offset,
-# [ Student# * 12 + 1  ... Student# * 12 + 1 + L ]
-# REMEMBER(!)     L < K - 12* StudentID
-# ------------------------------------------------------------------------------
-StudentID = 1
-sc0 = StudentID*12+1
-sc1 = StudentID * 12 + 1 + sc_cnt
-time_offset = 2*StudentID
 
 # dimensions:
 # <UE antenna> x <BS antenna> x <sub-carrier> x <time>
-Link_Channel = io.loadmat("Data/link_chan_PATH.mat")['Link_Channel']
-ue_ant_cnt, bs_ant_cnt, file_sc_count, T = Link_Channel.shape
-path_loss = np.mean(np.abs(Link_Channel))
+link_channel = io.loadmat("Data/link_chan_PATH.mat")['Link_Channel']
+ue_ant_cnt, bs_ant_cnt, file_sc_count, T = link_channel.shape
+path_loss = np.mean(np.abs(link_channel))
 # normalization of the channel
-Link_Channel = Link_Channel / (np.sqrt(2.) * path_loss)
+link_channel = link_channel / (np.sqrt(2.) * path_loss)
 
 
 print('Channel path_loss:\t{}  ({} dB)'.format(path_loss, 20 * np.log10(path_loss)))
@@ -42,15 +52,15 @@ print('Channel path_loss:\t{}  ({} dB)'.format(path_loss, 20 * np.log10(path_los
 
 fig_H, ax_H = plt.subplots(2, 1)
 
-ax_H[0].plot(range(1, sc_cnt + 1), np.abs(Link_Channel[0, 0, 0:sc_cnt, 0]))
-ax_H[0].plot([0, sc_cnt], [1, 1], 'r--')
+ax_H[0].plot(range(1, t_cfg.sc_cnt + 1), np.abs(link_channel[0, 0, 0:t_cfg.sc_cnt, 0]))
+ax_H[0].plot([0, t_cfg.sc_cnt], [1, 1], 'r--')
 
 ax_H[0].grid(True)
 ax_H[0].set_xlabel('subcarrier index')
 ax_H[0].set_ylabel('abs(H)')
 ax_H[0].set_ylim((0, 1.2))
 
-ax_H[1].plot(range(0, sc_cnt), np.rad2deg(np.angle(Link_Channel[0, 0, 0:sc_cnt, 0])))
+ax_H[1].plot(range(0, t_cfg.sc_cnt), np.rad2deg(np.angle(link_channel[0, 0, 0:t_cfg.sc_cnt, 0])))
 
 ax_H[1].grid(True)
 ax_H[1].set_xlabel('subcarrier index')
@@ -60,9 +70,9 @@ ax_H[1].set_ylabel('arg(H)')
 # task 1 / item 2 : create spatial matching filter and output BER(SNR)
 # ================================================================
 
-for packet_ind in range(0, packet_cnt):
+for packet_ind in range(0, t_cfg.packet_cnt):
     # [1] generation information bit sequence length L and map it in BPSK (single OFDM symbol) ###
-    tx_iq = 2 * np.random.randint(0, 2, sc_cnt) - 1
+    tx_iq = 2 * np.random.randint(0, 2, t_cfg.sc_cnt) - 1
 
     # test reception for each SNR case
     for q in range(0, len(SNR)):
@@ -74,40 +84,40 @@ for packet_ind in range(0, packet_cnt):
         # you will be ready to run transmission emulation in frequency domain (think,
         # WHY(?) did we select frequency domain ?
         #
-        p = np.ones((bs_ant_cnt, sc_cnt)) / np.sqrt(bs_ant_cnt)
+        p = np.ones((bs_ant_cnt, t_cfg.sc_cnt)) / np.sqrt(bs_ant_cnt)
         # p = subtask11(Link_Channel(:,:, StudentID * 12 + StudentID ^ 2, StudentID ^ 2));
 
         # Also we use following expression to create personal time offset [Student# * 2]
-        t = time_offset + packet_ind
+        t = t_cfg.time_offset + packet_ind
 
-        x = np.zeros((bs_ant_cnt, sc_cnt), complex)
-        y0 = np.zeros((ue_ant_cnt, sc_cnt), complex)
-        for sc_ind in range(sc_cnt):
+        x = np.zeros((bs_ant_cnt, t_cfg.sc_cnt), complex)
+        y0 = np.zeros((ue_ant_cnt, t_cfg.sc_cnt), complex)
+        for sc_ind in range(t_cfg.sc_cnt):
             x[:, sc_ind] = p[:, sc_ind]*tx_iq[sc_ind]
-            y0[:, sc_ind] = Link_Channel[:, :, (sc0 - 1 + sc_ind), t].dot(x[:, sc_ind])
+            y0[:, sc_ind] = link_channel[:, :, (t_cfg.sc0 - 1 + sc_ind), t].dot(x[:, sc_ind])
 
         # estimate power of signal to generate noise for given SNR
         Ps = np.mean(np.var(y0, axis=0))
         Dn = Ps / 10**(SNR[q]/10)
 
         # adding complex gaussian noise with variation Dn and expectation mean|n0| = 1
-        n0 = (np.random.normal(loc=0, scale=1, size=(ue_ant_cnt, sc_cnt)) +
-              1j * np.random.normal(loc=0, scale=1, size=(ue_ant_cnt, sc_cnt))) * np.sqrt(Dn / 2)
+        n0 = (np.random.normal(loc=0, scale=1, size=(ue_ant_cnt, t_cfg.sc_cnt)) +
+              1j * np.random.normal(loc=0, scale=1, size=(ue_ant_cnt, t_cfg.sc_cnt))) * np.sqrt(Dn / 2)
 
         # then we can update y0 into y with noise
         y = y0 + n0
 
         # Let assume that we have perfect channel estimation H
         # Channel knowledge (perfect) on UE has dimensionality MxNxL
-        H = Link_Channel[:, :, (sc0 - 1):(sc0 - 1 + sc_cnt), t]
+        H = link_channel[:, :, (t_cfg.sc0 - 1):(t_cfg.sc0 - 1 + t_cfg.sc_cnt), t]
 
         # If we have channel estimation H, we can use straight forward way MIMO equalization
         # as we sent single stream, then each receive antenna has to have similar result, and
         # to reduce noise impact, we just sum up all antennas assuming
         # COHERENT SUMMATION for SIGNAL, and AVERAGING for noise
-        rx_iq = np.zeros(sc_cnt, dtype=complex)
-        lamb = np.zeros((ue_ant_cnt, sc_cnt))
-        for sc_ind in range(0, sc_cnt):
+        rx_iq = np.zeros(t_cfg.sc_cnt, dtype=complex)
+        lamb = np.zeros((ue_ant_cnt, t_cfg.sc_cnt))
+        for sc_ind in range(0, t_cfg.sc_cnt):
             rx_iq[sc_ind] = np.sum(np.linalg.pinv(H[:, :, sc_ind]).dot(y[:, sc_ind]))
             U, tmp, V = np.linalg.svd(H[:, :, sc_ind])
             lamb[:, sc_ind] = tmp
@@ -122,7 +132,7 @@ for packet_ind in range(0, packet_cnt):
         # (!) TRY TO IMPLEMENT DUAL TRANSMISSION and GET +10 points.   SUBTASK 1.2
         # Two spatial streams
         #
-        subtask12(Link_Channel[:, :, StudentID*12+StudentID**2, StudentID**2])
+        subtask12(link_channel[:, :, t_cfg.student_id * 12 + t_cfg.student_id ** 2, t_cfg.student_id ** 2])
         # ###########################################################################
 
         # hard detection procedure for BPSK
@@ -130,7 +140,7 @@ for packet_ind in range(0, packet_cnt):
         # number of detected errors:
         s_err = np.sum(np.abs(tx_iq - rx_iq) / 2)
         # bit error rate
-        BER[q, packet_ind] = s_err / sc_cnt
+        BER[q, packet_ind] = s_err / t_cfg.sc_cnt
 
         print('BER = {:.2f} \t lambda_1 = {:.2f} \t lambda_2 = {:.2f}'.format(BER[q, packet_ind], LMBD[1], LMBD[2]))
 
