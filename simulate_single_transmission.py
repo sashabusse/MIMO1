@@ -53,7 +53,7 @@ def simulate_single_transmission(
         U, tmp, V = np.linalg.svd(H[:, :, sc_ind])
         lamb[:, sc_ind] = tmp
 
-    LMBD = np.sort(np.mean(lamb, 1))[::-1] / max(np.mean(lamb, 1))
+    lmbd = np.sort(np.mean(lamb, 1))[::-1] / max(np.mean(lamb, 1))
     # ###########################################################################
 
     # We have used H for equalization and summation. Do you think we can find
@@ -69,4 +69,6 @@ def simulate_single_transmission(
     rx_iq = hard_detection(rx_iq, "BPSK")
 
     ber = np.sum(np.abs(tx_iq - rx_iq) / 2) / t_cfg.sc_cnt
-    return ber
+    return ber, lmbd
+
+
