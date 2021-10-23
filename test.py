@@ -1,16 +1,13 @@
 import numpy as np
 
-mat = np.array([
-    [1]*3,
-    [2]*3,
-    [3]*3
+a = np.array([
+    [1, 2],
+    [3, 4]
 ])
 
+b = np.array([1, 2])
 
-print(mat*np.array([1, 2, 3]))
-
-
-
-
-
+print(a*b)
+print()
+print(np.sum(a*b, axis=0))
 
